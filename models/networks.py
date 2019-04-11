@@ -33,7 +33,7 @@ def define_G(output_nc, ngf, netG, n_downsample_global=3, n_blocks_global=9, n_l
         raise('generator not implemented!')
     return netG
 
-def define_D(ndf, n_layers_D, norm='instance', use_sigmoid=False, num_D=1, getIntermFeat=False, gpu_ids=[]):
+def define_D(ndf, n_layers_D, norm='instance', use_sigmoid=False, num_D=1, getIntermFeat=False):
     norm_layer = get_norm_layer(norm_type=norm)
     netD = MultiscaleDiscriminator(ndf, n_layers_D, norm_layer, use_sigmoid, num_D, getIntermFeat)
 
@@ -365,9 +365,9 @@ if __name__ == '__main__':
     # glob_out = glob_g(test_inp[tf.newaxis, ...])
     # print(glob_out.shape)
     #
-    # local_e = LocalEnhancer(3)
-    # local_out = local_e(test_inp[tf.newaxis, ...])
-    # print(local_out.shape)
+    local_e = LocalEnhancer(3)
+    local_out = local_e(test_inp[tf.newaxis, ...])
+    print(local_e.layers)
     #
     # nlayer_disc = NLayerDiscriminator()
     # nlayer_disc_out = nlayer_disc(test_inp[tf.newaxis, ...])
@@ -377,6 +377,6 @@ if __name__ == '__main__':
     # multi_disc_out = multi_disc(test_inp[tf.newaxis, ...])
     # print(len(multi_disc_out))
 
-    vgg19 = Vgg19()
-    vgg_out = vgg19(test_inp[tf.newaxis, ...])
-    print(len(vgg_out))
+    # vgg19 = Vgg19()
+    # vgg_out = vgg19(test_inp[tf.newaxis, ...])
+    # print(len(vgg_out))
