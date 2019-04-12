@@ -111,12 +111,11 @@ class Pix2PixHDModel(BaseModel):
             input_label = label_map
         else:
             # create one-hot vector for label map
-            size = label_map.size()
+            size = tf.shape(label_map)
             oneHot_size = (size[0], size[1], size[2], self.opt.label_nc)
-            input_label = torch.cuda.FloatTensor(torch.Size(oneHot_size)).zero_()
-            input_label = tf.zeros(oneHot_size)
-            input_label = tf.scatter_nd(label_map, tf.ones_like(label_map), oneHot_size)
-            input_label = input_label.scatter_(1, label_map.data.long().cuda(), 1.0)
+            label_idx = tf.where(label_map >= 0)  # shape: [b, h, w, c] -> [b*h*w*c, 4]
+            idx = tf.concat([label_idx[..., :-1], tf.reshape(label_idx, [-1, 1])], 1)
+            input_label = tf.scatter_nd(idx, tf.ones(tf.shape(idx)[0]), oneHot_size)
             if self.opt.data_type == 16:
                 input_label = input_label.half()
 
