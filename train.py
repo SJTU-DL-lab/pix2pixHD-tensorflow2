@@ -51,40 +51,46 @@ def discriminate(input, target_is_real):
             target_tensor = tf.zeros_like(input[-1])
         return criterionGAN(input[-1], target_tensor)
 
+@tf.function
+def train_step(inputs, real_img):
+    input_label = inputs[0]
+    fake_img = model.netG(input_label)
+
+    real_pair = tf.concat([input_label, real_img], axis=-1)
+    fake_pair = tf.concat([input_label, fake_img], axis=-1)
+    fake_pair = fake_pool.query(fake_pair)
+
+    # Fake Detection and Loss
+    pred_fake_pool = model.netD(fake_pair)
+    loss_D_fake = discriminate(pred_fake_pool, False)
+
+    # Real Detection and Loss
+    pred_real = model.netD(real_pair)
+    loss_D_real = discriminate(pred_real, True)
+
+    # GAN loss (Fake Passability Loss)
+    pred_fake = model.netD(fake_pair)
+    loss_G_GAN = discriminate(pred_fake, True)
+
+    # GAN feature matching loss
+    loss_G_GAN_Feat = 0
+    if not opt.no_ganFeat_loss:
+        feat_weights = 4.0 / (opt.n_layers_D + 1)
+        D_weights = 1.0 / opt.num_D
+        for i in range(opt.num_D):
+            for j in range(len(pred_fake[i])-1):
+                loss_G_GAN_Feat += D_weights * feat_weights * \
+                    criterionFeat(pred_fake[i][j], pred_real[i][j]) * opt.lambda_feat
+
+    if not opt.no_vgg_loss:
+        loss_G_VGG = criterionVGG(fake_img, real_img) * opt.lambda_feat
+
+
 
 for ep in range(start_epoch, opt.niter + opt.niter_decay + 1):
     print(ep)
     for step, (label, real_img) in enumerate(dataset):
         print(step)
         input_label, inst_map, real_image, feat_map = model.encode_input(label)
-
-        fake_img = model.netG(input_label)
-
-        real_pair = tf.concat([input_label, real_img], axis=-1)
-        fake_pair = tf.concat([input_label, fake_img], axis=-1)
-        fake_pair = fake_pool.query(fake_pair)
-
-        # Fake Detection and Loss
-        pred_fake_pool = model.netD(fake_pair)
-        loss_D_fake = discriminate(pred_fake_pool, False)
-
-        # Real Detection and Loss
-        pred_real = model.netD(real_pair)
-        loss_D_real = discriminate(pred_real, True)
-
-        # GAN loss (Fake Passability Loss)
-        pred_fake = model.netD(fake_pair)
-        loss_G_GAN = discriminate(pred_fake, True)
-
-        # GAN feature matching loss
-        loss_G_GAN_Feat = 0
-        if not opt.no_ganFeat_loss:
-            feat_weights = 4.0 / (opt.n_layers_D + 1)
-            D_weights = 1.0 / opt.num_D
-            for i in range(opt.num_D):
-                for j in range(len(pred_fake[i])-1):
-                    loss_G_GAN_Feat += D_weights * feat_weights * \
-                        criterionFeat(pred_fake[i][j], pred_real[i][j]) * opt.lambda_feat
-
-        if not opt.no_vgg_loss:
-            loss_G_VGG = criterionVGG(fake_img, real_img) * opt.lambda_feat
+        inputs = (input_label, inst_map, real_image, feat_map)
+        train_step(inputs, real_img)
