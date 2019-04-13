@@ -1,6 +1,7 @@
 import os
 import tensorflow as tf
 import tensorflow.keras as K
+import tf2lib as tl
 from options.train_options import TrainOptions
 from data.aligned_dataset import aligned_dataset
 from models.pix2pixHD_model import Pix2PixHDModel
@@ -23,6 +24,18 @@ else:
     criterionGAN = K.losses.MeanSquaredError()
 criterionFeat = K.losses.MeanAbsoluteError()
 criterionVGG = VGGLoss()
+
+# checkpoint
+checkpoint_dir = os.path.join(self.opt.checkpoints_dir,
+                              self.opt.name, 'train_ckpt')
+checkpoint_prefix = os.path.join(checkpoint_dir, "ckpt")
+checkpoint = tf.train.Checkpoint(generator_optimizer=model.optimizer_G,
+                                 discriminator_optimizer=model.optimizer_D,
+                                 generator=model.netG,
+                                 discriminator=model.netD)
+# summary
+train_summary_writer = tf.summary.create_file_writer(os.path.join(self.opt.checkpoints_dir,
+                                                     self.opt.name, 'summary'))
 
 def train_D(fake_pair, real_pair):
 
@@ -97,11 +110,29 @@ def train_step(inputs, real_img):
     model.optimizer_D.apply_gradients(zip(disc_grads,
                                           model.netD.trainable_variables))
 
+    loss_D_dict = {
+        'D_fake': loss_D_fake,
+        'D_real': loss_D_real
+        }
+    loss_G_dict = {
+        'G_GAN': loss_G_GAN,
+        'G_GAN_Feat': loss_G_GAN_Feat,
+        'loss_G_VGG': loss_G_VGG
+    }
+    return loss_D_dict, loss_G_dict
 
-for ep in range(start_epoch, opt.niter + opt.niter_decay + 1):
-    print(ep)
-    for step, (label, real_img) in enumerate(dataset):
-        print(step)
-        input_label, inst_map, real_image, feat_map = model.encode_input(label)
-        inputs = (input_label, inst_map, real_image, feat_map)
-        train_step(inputs, real_img)
+
+# main loop
+with train_summary_writer.as_default():
+    for ep in range(start_epoch, opt.niter + opt.niter_decay + 1):
+        print('Epoch: ', ep)
+        for step, (label, real_img) in enumerate(dataset):
+            input_label, inst_map, real_image, feat_map = model.encode_input(label)
+            inputs = (input_label, inst_map, real_image, feat_map)
+            loss_D_dict, loss_G_dict = train_step(inputs, real_img)
+
+            if step % opt.save_epoch_freq == 0:
+                checkpoint.save(checkpoint_prefix)
+
+            tl.summary(loss_G_dict, step=model.netG.iterations, name='G_losses')
+            tl.summary(loss_D_dict, step=model.netG.iterations, name='D_losses')
