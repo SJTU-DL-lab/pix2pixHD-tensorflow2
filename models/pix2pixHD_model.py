@@ -4,10 +4,10 @@ import tensorflow.keras as K
 from tensorflow.keras import layers
 import os
 from util.image_pool import ImagePool
-from .base_model import BaseModel
 from . import networks
 
-class Pix2PixHDModel(BaseModel):
+
+class Pix2PixHDModel():
     def name(self):
         return 'Pix2PixHDModel'
 
@@ -18,8 +18,9 @@ class Pix2PixHDModel(BaseModel):
         return loss_filter
 
     def initialize(self, opt):
-        BaseModel.initialize(self, opt)
+        self.opt = opt
         self.isTrain = opt.isTrain
+        self.save_dir = os.path.join(opt.checkpoints_dir, opt.name)
         self.use_features = opt.instance_feat or opt.label_feat
         self.gen_features = self.use_features and not self.opt.load_features
         input_nc = opt.label_nc if opt.label_nc != 0 else opt.input_nc
@@ -31,7 +32,8 @@ class Pix2PixHDModel(BaseModel):
             netG_input_nc += 1
         if self.use_features:
             netG_input_nc += opt.feat_num
-        self.netG = networks.define_G(opt.output_nc, opt.ngf, opt.netG,
+
+        self.netG = networks.define_G(netG_input_nc, opt.output_nc, opt.ngf, opt.netG,
                                       opt.n_downsample_global, opt.n_blocks_global, opt.n_local_enhancers,
                                       opt.n_blocks_local, opt.norm)
 
@@ -41,7 +43,7 @@ class Pix2PixHDModel(BaseModel):
             netD_input_nc = input_nc + opt.output_nc
             if not opt.no_instance:
                 netD_input_nc += 1
-            self.netD = networks.define_D(opt.ndf, opt.n_layers_D, opt.norm, use_sigmoid,
+            self.netD = networks.define_D(netD_input_nc, opt.ndf, opt.n_layers_D, opt.norm, use_sigmoid,
                                           opt.num_D, not opt.no_ganFeat_loss)
 
         ### Encoder network
@@ -70,8 +72,8 @@ class Pix2PixHDModel(BaseModel):
             # define loss functions
             # self.loss_filter = self.init_loss_filter(not opt.no_ganFeat_loss, not opt.no_vgg_loss)
 
-            self.criterionGAN = networks.GANLoss(use_lsgan=not opt.no_lsgan, tensor=self.Tensor)
-            self.criterionFeat = k.losses.MeanAbsoluteError()
+            # self.criterionGAN = networks.GANLoss(use_lsgan=not opt.no_lsgan, tensor=self.Tensor)
+            self.criterionFeat = K.losses.MeanAbsoluteError()
             if not opt.no_vgg_loss:
                 self.criterionVGG = networks.VGGLoss()
 
@@ -98,13 +100,14 @@ class Pix2PixHDModel(BaseModel):
                 # print('------------- Only training the local enhancer network (for %d epochs) ------------' % opt.niter_fix_global)
                 # print('The layers that are finetuned are ', sorted(finetune_list))
             else:
-                params = list(self.netG.parameters())
+                pass
+                # params = list(self.netG.parameters())
             # if self.gen_features:
             #     params += list(self.netE.parameters())
-            self.optimizer_G = K.optimizer.Adam(lr=opt.lr, beta1=opt.beat1, beta2=0.999)
+            self.optimizer_G = K.optimizers.Adam(lr=opt.lr, beta_1=opt.beta1, beta_2=0.999)
 
             # optimizer D
-            self.optimizer_D = K.optimizer.Adam(lr=opt.lr, beta1=opt.beat1, beta2=0.999)
+            self.optimizer_D = K.optimizers.Adam(lr=opt.lr, beta_1=opt.beta1, beta_2=0.999)
 
     def encode_input(self, label_map, inst_map=None, real_image=None, feat_map=None, infer=False):
         if self.opt.label_nc == 0:
@@ -114,10 +117,10 @@ class Pix2PixHDModel(BaseModel):
             size = tf.shape(label_map)
             oneHot_size = (size[0], size[1], size[2], self.opt.label_nc)
             label_idx = tf.where(label_map >= 0)  # shape: [b, h, w, c] -> [b*h*w*c, 4]
-            idx = tf.concat([label_idx[..., :-1], tf.reshape(label_idx, [-1, 1])], 1)
+            idx = tf.concat([label_idx[..., :-1], tf.cast(tf.reshape(label_map, [-1, 1]), tf.int64)], 1)
             input_label = tf.scatter_nd(idx, tf.ones(tf.shape(idx)[0]), oneHot_size)
             if self.opt.data_type == 16:
-                input_label = input_label.half()
+                input_label = tf.cast(input_label, tf.int16)
 
         # # get edges from instance map
         # if not self.opt.no_instance:
@@ -128,7 +131,7 @@ class Pix2PixHDModel(BaseModel):
 
         # real images for training
         if real_image is not None:
-            real_image = Variable(real_image.data.cuda())
+            real_image = real_image
 
         # # instance map for feature encoding
         # if self.use_features:

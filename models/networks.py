@@ -19,13 +19,14 @@ def get_norm_layer(norm_type='instance'):
 
     return norm_layer
 
-def define_G(output_nc, ngf, netG, n_downsample_global=3, n_blocks_global=9, n_local_enhancers=1,
+def define_G(input_nc, output_nc, ngf, netG, n_downsample_global=3, n_blocks_global=9, n_local_enhancers=1,
              n_blocks_local=3, norm='instance'):
+
     norm_layer = get_norm_layer(norm_type=norm)
     if netG == 'global':
-        netG = GlobalGenerator(output_nc, ngf, n_downsample_global, n_blocks_global, norm_layer)
+        netG = GlobalGenerator(input_nc, output_nc, ngf, n_downsample_global, n_blocks_global, norm_layer)
     elif netG == 'local':
-        netG = LocalEnhancer(output_nc, ngf, n_downsample_global, n_blocks_global,
+        netG = LocalEnhancer(input_nc, output_nc, ngf, n_downsample_global, n_blocks_global,
                                   n_local_enhancers, n_blocks_local, norm_layer)
     # elif netG == 'encoder':
     #     netG = Encoder(output_nc, ngf, n_downsample_global, norm_layer)
@@ -33,9 +34,9 @@ def define_G(output_nc, ngf, netG, n_downsample_global=3, n_blocks_global=9, n_l
         raise('generator not implemented!')
     return netG
 
-def define_D(ndf, n_layers_D, norm='instance', use_sigmoid=False, num_D=1, getIntermFeat=False):
+def define_D(input_nc, ndf, n_layers_D, norm='instance', use_sigmoid=False, num_D=1, getIntermFeat=False):
     norm_layer = get_norm_layer(norm_type=norm)
-    netD = MultiscaleDiscriminator(ndf, n_layers_D, norm_layer, use_sigmoid, num_D, getIntermFeat)
+    netD = MultiscaleDiscriminator(input_nc, ndf, n_layers_D, norm_layer, use_sigmoid, num_D, getIntermFeat)
 
     return netD
 
@@ -43,30 +44,31 @@ def define_D(ndf, n_layers_D, norm='instance', use_sigmoid=False, num_D=1, getIn
 # Losses
 class VGGLoss(layers.Layer):
     def __init__(self):
+        super(VGGLoss, self).__init__(name='VGGLoss')
         self.vgg = Vgg19()
-        self.criterion = lambda ta, tb: tf.reduce_mean(tf.abs(ta - tb))
-        self.weights = [1.0/32, 1.0/16, 1.0/8, 1.0/4, 1.0]
+        self.criterion = K.losses.MeanAbsoluteError()  # lambda ta, tb: tf.reduce_mean(tf.abs(ta - tb))
+        self.layer_weights = [1.0/32, 1.0/16, 1.0/8, 1.0/4, 1.0]
 
     def call(self, x, y):
         x_vgg, y_vgg = self.vgg(x), self.vgg(y)
         loss = 0
-        for i in range(len(x_vgg.layers)):
+        for i in range(len(x_vgg)):
             y_vgg_temp = tf.stop_gradient(y_vgg[i])
-            loss += self.weights[i] * self.criterion(x_vgg[i], y_vgg_temp)
+            loss += self.layer_weights[i] * self.criterion(x_vgg[i], y_vgg_temp)
         return loss
 
 
 # Generator
 class LocalEnhancer(K.Model):
-    def __init__(self, output_nc, ngf=32, n_downsample_global=3, n_blocks_global=9,
+    def __init__(self, input_nc, output_nc, ngf=32, n_downsample_global=3, n_blocks_global=9,
                  n_local_enhancers=1, n_blocks_local=3, norm_layer=get_norm_layer('batch'), padding_type='REFLECT'):
-        super(LocalEnhancer, self).__init__()
+        super(LocalEnhancer, self).__init__(name='LocalEnhancer')
         self.n_local_enhancers = n_local_enhancers
         paddings = tf.constant([[0, 0], [3, 3], [3, 3], [0, 0]])
 
         # global generator
         ngf_global = ngf * (2**n_local_enhancers)
-        model_global = GlobalGenerator(output_nc, ngf_global, n_downsample_global, n_blocks_global, norm_layer).layers[0].layers
+        model_global = GlobalGenerator(input_nc, output_nc, ngf_global, n_downsample_global, n_blocks_global, norm_layer).layers[0].layers
         model_global = model_global[:-3] # get rid of final convolution layers
         self.model = K.Sequential(model_global)
 
@@ -124,7 +126,7 @@ class LocalEnhancer(K.Model):
         return output_prev
 
 class GlobalGenerator(K.Model):
-    def __init__(self, output_nc, ngf=64, n_downsampling=3, n_blocks=9,
+    def __init__(self, input_nc, output_nc, ngf=64, n_downsampling=3, n_blocks=9,
                  norm_layer=get_norm_layer('batch'),
                  padding_type='REFLECT'):
         assert(n_blocks >= 0)
@@ -135,8 +137,9 @@ class GlobalGenerator(K.Model):
         activation = layers.ReLU()
 
         model = K.Sequential()
+        # model.add(layers.InputLayer([None, None, input_nc]))
         model.add(ReflectionPad2d(paddings))
-        model.add(layers.Conv2D(ngf, 7, kernel_initializer=weight_init['conv']))
+        model.add(layers.Conv2D(ngf, 7, kernel_initializer=weight_init['conv'], input_shape=(None, None, input_nc)))
         model.add(norm_layer)
         model.add(activation)
 
@@ -205,7 +208,7 @@ class ResnetBlock(layers.Layer):
 
 # Discriminator
 class MultiscaleDiscriminator(K.Model):
-    def __init__(self, ndf=64, n_layers=3, norm_layer=get_norm_layer('batch'),
+    def __init__(self, input_nc, ndf=64, n_layers=3, norm_layer=get_norm_layer('batch'),
                  use_sigmoid=False, num_D=3, getIntermFeat=False):
         super(MultiscaleDiscriminator, self).__init__(name='MultiscaleDiscriminator')
         self.num_D = num_D
@@ -213,7 +216,7 @@ class MultiscaleDiscriminator(K.Model):
         self.getIntermFeat = getIntermFeat
 
         for i in range(num_D):
-            netD = NLayerDiscriminator(ndf, n_layers, norm_layer, use_sigmoid, getIntermFeat)
+            netD = NLayerDiscriminator(input_nc, ndf, n_layers, norm_layer, use_sigmoid, getIntermFeat)
             if getIntermFeat:
                 for j in range(n_layers+2):
                     setattr(self, 'scale'+str(i)+'_layer'+str(j), getattr(netD, 'model'+str(j)))
@@ -248,13 +251,14 @@ class MultiscaleDiscriminator(K.Model):
 
 # Defines the PatchGAN discriminator with the specified arguments.
 class NLayerDiscriminator(K.Model):
-    def __init__(self, ndf=64, n_layers=3, norm_layer=get_norm_layer('batch'), use_sigmoid=False, getIntermFeat=False):
+    def __init__(self, input_nc, ndf=64, n_layers=3, norm_layer=get_norm_layer('batch'), use_sigmoid=False, getIntermFeat=False):
         super(NLayerDiscriminator, self).__init__(name='NLayerDiscriminator')
         self.getIntermFeat = getIntermFeat
         self.n_layers = n_layers
 
         kw = 4
         sequence = K.Sequential()
+        # sequence.add(layers.InputLayer([None, None, input_nc]))
         sequence.add(layers.Conv2D(ndf, kw, strides=2, padding='same', kernel_initializer=weight_init['conv']))
         sequence.add(layers.LeakyReLU(0.2))
 
