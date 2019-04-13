@@ -68,7 +68,7 @@ def preprocess_image_B(img):
 
     # if 'crop' in opt.resize_or_crop:
     #     img = crop(img, params['crop_pos'], opt.fineSize)
-    print(img)
+
     if opt.resize_or_crop == 'none':
         base = float(2 ** opt.n_downsample_global)
         if opt.netG == 'local':

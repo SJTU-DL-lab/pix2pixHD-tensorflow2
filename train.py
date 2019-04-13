@@ -26,16 +26,16 @@ criterionFeat = K.losses.MeanAbsoluteError()
 criterionVGG = VGGLoss()
 
 # checkpoint
-checkpoint_dir = os.path.join(self.opt.checkpoints_dir,
-                              self.opt.name, 'train_ckpt')
+checkpoint_dir = os.path.join(opt.checkpoints_dir,
+                              opt.name, 'train_ckpt')
 checkpoint_prefix = os.path.join(checkpoint_dir, "ckpt")
 checkpoint = tf.train.Checkpoint(generator_optimizer=model.optimizer_G,
                                  discriminator_optimizer=model.optimizer_D,
                                  generator=model.netG,
                                  discriminator=model.netD)
 # summary
-train_summary_writer = tf.summary.create_file_writer(os.path.join(self.opt.checkpoints_dir,
-                                                     self.opt.name, 'summary'))
+train_summary_writer = tf.summary.create_file_writer(os.path.join(opt.checkpoints_dir,
+                                                     opt.name, 'summary'))
 
 def train_D(fake_pair, real_pair):
 
@@ -134,5 +134,5 @@ with train_summary_writer.as_default():
             if step % opt.save_epoch_freq == 0:
                 checkpoint.save(checkpoint_prefix)
 
-            tl.summary(loss_G_dict, step=model.netG.iterations, name='G_losses')
-            tl.summary(loss_D_dict, step=model.netG.iterations, name='D_losses')
+            tl.summary(loss_G_dict, step=model.optimizer_G.iterations, name='G_losses')
+            tl.summary(loss_D_dict, step=model.optimizer_G.iterations, name='D_losses')
