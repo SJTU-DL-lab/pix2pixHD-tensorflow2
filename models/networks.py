@@ -359,6 +359,52 @@ class Sigmoid(layers.Layer):
         return tf.keras.activations.sigmoid(x)
 
 
+class InstanceNorm(layers.Layer):
+    def __init__(self,
+                 scale=True,
+                 center=True,
+                 gamma_initializer=None,
+                 beta_initializer=None,
+                 trainable=True):
+        super(InstanceNorm, self).__init__(name='instancenorm')
+        inputs_rank = inputs.shape.
+
+    def call(self, x):
+        pass
+
+    def build(self, input_shape):
+        input_shape = tensor_shape.TensorShape(input_shape)
+        if not input_shape.ndims:
+            raise ValueError('Input has undefined rank:', input_shape)
+        ndims = len(input_shape)
+
+        if self.scale:
+            self.gamma = self.add_weight(
+              name='gamma',
+              shape=param_shape,
+              dtype=self._param_dtype,
+              initializer=self.gamma_initializer,
+              regularizer=self.gamma_regularizer,
+              constraint=self.gamma_constraint,
+              trainable=True,
+              experimental_autocast=False)
+        else:
+            self.gamma = None
+
+        if self.center:
+            self.beta = self.add_weight(
+                        name='beta',
+                        shape=param_shape,
+                        dtype=self._param_dtype,
+                        initializer=self.beta_initializer,
+                        regularizer=self.beta_regularizer,
+                        constraint=self.beta_constraint,
+                        trainable=True,
+                        experimental_autocast=False)
+        else:
+            self.beta = None
+
+
 if __name__ == '__main__':
     test_inp = tf.random.normal((256, 256, 3))
     # res_block = ResnetBlock(3, 'CONSTANT', get_norm_layer('batch'))
