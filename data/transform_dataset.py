@@ -53,6 +53,8 @@ def preprocess_image_A(img):
     if opt.label_nc == 0:
         if not opt.no_normalize_img:
             img = (img - 0.5) / 0.5
+    else:
+        img = tf.cast(img, tf.uint8)
 
     return img
 

@@ -25,7 +25,7 @@ class Checkpoint:
 
 def summary(name_data_dict,
             step=None,
-            types=['mean', 'std', 'max', 'min', 'sparsity', 'histogram'],
+            types=['mean', 'std', 'max', 'min', 'sparsity', 'histogram', 'image'],
             historgram_buckets=None,
             name='summary'):
     """Summary.
@@ -50,6 +50,8 @@ def summary(name_data_dict,
                 tf.summary.scalar(name + '-sparsity', tf.math.zero_fraction(data), step=step)
             if 'histogram' in types:
                 tf.summary.histogram(name, data, step=step, buckets=historgram_buckets)
+            if 'image' in types:
+                tf.summary.image(name, data, step=step)
 
     with tf.name_scope(name):
         for name, data in name_data_dict.items():

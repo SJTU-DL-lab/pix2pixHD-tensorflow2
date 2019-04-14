@@ -1,5 +1,6 @@
 import tensorflow as tf
 import tensorflow.keras as K
+import functools
 from tensorflow.keras import layers
 from tensorflow.keras.applications.vgg19 import VGG19
 
@@ -12,11 +13,13 @@ weight_init['bn_beta'] = tf.zeros_initializer()
 # Functions
 def get_norm_layer(norm_type='instance'):
     if norm_type == 'batch':
-        norm_layer = layers.BatchNormalization(gamma_initializer=weight_init['bn_gamma'],
-                                               beta_initializer=weight_init['bn_beta'])
+        norm_layer = functools.partial(layers.BatchNormalization,
+                                       gamma_initializer=weight_init['bn_gamma'],
+                                       beta_initializer=weight_init['bn_beta'])
+    elif norm_type == 'instance':
+        norm_layer = InstanceNorm
     else:
         raise NotImplementedError('normalization layer [%s] is not found' % norm_type)
-
     return norm_layer
 
 def define_G(input_nc, output_nc, ngf, netG, n_downsample_global=3, n_blocks_global=9, n_local_enhancers=1,
@@ -79,20 +82,20 @@ class LocalEnhancer(K.Model):
             model_downsample = K.Sequential()
             model_downsample.add(ReflectionPad2d(paddings))
             model_downsample.add(layers.Conv2D(ngf_global, 7, kernel_initializer=weight_init['conv']))
-            model_downsample.add(norm_layer)
+            model_downsample.add(norm_layer())
             model_downsample.add(layers.ReLU())
             model_downsample.add(layers.Conv2D(ngf_global * 2, 3, strides=2, padding='same', kernel_initializer=weight_init['conv']))
-            model_downsample.add(norm_layer)
+            model_downsample.add(norm_layer())
             model_downsample.add(layers.ReLU())
 
             # residual blocks
             model_upsample = K.Sequential()
             for i in range(n_blocks_local):
-                model_upsample.add(ResnetBlock(ngf_global * 2, padding_type=padding_type, norm_layer=norm_layer))
+                model_upsample.add(ResnetBlock(ngf_global * 2, padding_type=padding_type, norm_layer=norm_layer()))
 
             # upsample
             model_upsample.add(layers.Conv2DTranspose(ngf_global, 3, strides=2, padding='same', output_padding=1, kernel_initializer=weight_init['conv']))
-            model_upsample.add(norm_layer)
+            model_upsample.add(norm_layer())
             model_upsample.add(layers.ReLU())
 
             # final convolution
@@ -140,14 +143,14 @@ class GlobalGenerator(K.Model):
         # model.add(layers.InputLayer([None, None, input_nc]))
         model.add(ReflectionPad2d(paddings))
         model.add(layers.Conv2D(ngf, 7, kernel_initializer=weight_init['conv'], input_shape=(None, None, input_nc)))
-        model.add(norm_layer)
+        model.add(norm_layer())
         model.add(activation)
 
         # downsample
         for i in range(n_downsampling):
             mult = 2**i
             model.add(layers.Conv2D(ngf * mult * 2, 3, strides=2, padding='same', kernel_initializer=weight_init['conv']))
-            model.add(norm_layer)
+            model.add(norm_layer())
             model.add(activation)
 
         # resnet blocks
@@ -159,7 +162,7 @@ class GlobalGenerator(K.Model):
         for i in range(n_downsampling):
             mult = 2**(n_downsampling - i)
             model.add(layers.Conv2DTranspose(int(ngf * mult / 2), 3, strides=2, padding='same', output_padding=1, kernel_initializer=weight_init['conv']))
-            model.add(norm_layer)
+            model.add(norm_layer())
             model.add(activation)
         model.add(ReflectionPad2d(paddings))
         model.add(layers.Conv2D(self.output_nc, 7, kernel_initializer=weight_init['conv']))
@@ -179,12 +182,12 @@ class GlobalGenerator(K.Model):
 
 class ResnetBlock(layers.Layer):
     def __init__(self, dim, padding_type, norm_layer,
-                 activation = layers.ReLU(), use_dropout=False, name='ResnetBlock', **kwargs):
+                 activation=layers.ReLU(), use_dropout=False, name='ResnetBlock', **kwargs):
         super(ResnetBlock, self).__init__(name=name, **kwargs)
         self.use_dropout = use_dropout
         self.padding_type = padding_type
         self.dim = dim
-        self.norm_layer = norm_layer
+        # self.norm_layer = norm_layer
         self.activation = activation
         # CONSTANT REFLECT SYMMETRIC
 
@@ -194,14 +197,14 @@ class ResnetBlock(layers.Layer):
 
         x = tf.pad(x, paddings, self.padding_type)
         x = layers.Conv2D(self.dim, 3, kernel_initializer=weight_init['conv'])(x)
-        x = self.norm_layer(x)
+        x = InstanceNorm()(x)
         x = self.activation(x)
         if self.use_dropout:
             x = layers.Dropout(0.5)(x)
 
         x = tf.pad(x, paddings, self.padding_type)
         x = layers.Conv2D(self.dim, 3, kernel_initializer=weight_init['conv'])(x)
-        x = self.norm_layer(x)
+        x = InstanceNorm()(x)
         out = x + identity
 
         return out
@@ -267,14 +270,14 @@ class NLayerDiscriminator(K.Model):
             nf_prev = nf
             nf = min(nf * 2, 512)
             sequence.add(layers.Conv2D(nf, kw, strides=2, padding='same', kernel_initializer=weight_init['conv']))
-            sequence.add(norm_layer)
+            sequence.add(norm_layer())
             sequence.add(layers.LeakyReLU(0.2))
 
         ng_prev = nf
         nf = min(nf * 2, 512)
         sequence.add(layers.Conv2D(nf, kw, strides=1, kernel_initializer=weight_init['conv']))
         sequence.add(layers.ZeroPadding2D())
-        sequence.add(norm_layer)
+        sequence.add(norm_layer())
         sequence.add(layers.LeakyReLU(0.2))
 
         sequence.add(layers.Conv2D(1, kw, strides=1, kernel_initializer=weight_init['conv']))
@@ -362,32 +365,44 @@ class Sigmoid(layers.Layer):
 class InstanceNorm(layers.Layer):
     def __init__(self,
                  scale=True,
-                 center=True,
+                 center=False,
                  gamma_initializer=None,
                  beta_initializer=None,
+                 epsilon=1e-6,
                  trainable=True):
         super(InstanceNorm, self).__init__(name='instancenorm')
-        inputs_rank = inputs.shape.
+        self.scale = scale
+        self.center = center
+        self.gamma_initializer = gamma_initializer
+        self.beta_initializer = beta_initializer
+        self.trainable = trainable
+        self.epsilon = epsilon
 
-    def call(self, x):
-        pass
+        if gamma_initializer is None:
+            self.gamma_initializer = tf.ones_initializer()
+        if beta_initializer is None:
+            self.beta_initializer = tf.zeros_initializer()
 
     def build(self, input_shape):
-        input_shape = tensor_shape.TensorShape(input_shape)
+        # input_shape = tensor_shape.TensorShape(input_shape)
         if not input_shape.ndims:
             raise ValueError('Input has undefined rank:', input_shape)
         ndims = len(input_shape)
+        assert ndims > 0
+
+        reduction_axis = ndims - 1
+        moments_axes = list(range(ndims))
+        del moments_axes[reduction_axis]
+        del moments_axes[0]
+        self.moments_axes = tf.convert_to_tensor(moments_axes)
+        param_shape = input_shape[reduction_axis:reduction_axis+1]
 
         if self.scale:
             self.gamma = self.add_weight(
               name='gamma',
               shape=param_shape,
-              dtype=self._param_dtype,
               initializer=self.gamma_initializer,
-              regularizer=self.gamma_regularizer,
-              constraint=self.gamma_constraint,
-              trainable=True,
-              experimental_autocast=False)
+              trainable=self.trainable)
         else:
             self.gamma = None
 
@@ -395,18 +410,25 @@ class InstanceNorm(layers.Layer):
             self.beta = self.add_weight(
                         name='beta',
                         shape=param_shape,
-                        dtype=self._param_dtype,
                         initializer=self.beta_initializer,
-                        regularizer=self.beta_regularizer,
-                        constraint=self.beta_constraint,
-                        trainable=True,
-                        experimental_autocast=False)
+                        trainable=self.trainable)
         else:
             self.beta = None
 
+    def call(self, inputs):
+        # Calculate the moments
+        mean, variance = tf.nn.moments(inputs, self.moments_axes, keepdims=True)
+
+        # Compute instance normalization
+        outputs = tf.nn.batch_normalization(
+            inputs, mean, variance, self.beta, self.gamma, self.epsilon)
+        return outputs
+
+
 
 if __name__ == '__main__':
-    test_inp = tf.random.normal((256, 256, 3))
+    test_inp = tf.random.normal((2, 30, 30, 1024))
+    print(test_inp)
     # res_block = ResnetBlock(3, 'CONSTANT', get_norm_layer('batch'))
     # res_out = res_block(test_inp[tf.newaxis, ...])
     # print(res_out.shape)
@@ -415,9 +437,9 @@ if __name__ == '__main__':
     # glob_out = glob_g(test_inp[tf.newaxis, ...])
     # print(glob_out.shape)
     #
-    local_e = LocalEnhancer(3)
-    local_out = local_e(test_inp[tf.newaxis, ...])
-    print(local_e.layers)
+    # local_e = LocalEnhancer(3)
+    # local_out = local_e(test_inp[tf.newaxis, ...])
+    # print(local_e.layers)
     #
     # nlayer_disc = NLayerDiscriminator()
     # nlayer_disc_out = nlayer_disc(test_inp[tf.newaxis, ...])
@@ -430,3 +452,6 @@ if __name__ == '__main__':
     # vgg19 = Vgg19()
     # vgg_out = vgg19(test_inp[tf.newaxis, ...])
     # print(len(vgg_out))
+    ins_norm = InstanceNorm()
+    ins_out = ins_norm(test_inp)
+    print(ins_out.shape)

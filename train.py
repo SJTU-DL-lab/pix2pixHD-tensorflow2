@@ -119,7 +119,7 @@ def train_step(inputs, real_img):
         'G_GAN_Feat': loss_G_GAN_Feat,
         'loss_G_VGG': loss_G_VGG
     }
-    return loss_D_dict, loss_G_dict
+    return loss_D_dict, loss_G_dict, fake_img
 
 
 # main loop
@@ -129,10 +129,19 @@ with train_summary_writer.as_default():
         for step, (label, real_img) in enumerate(dataset):
             input_label, inst_map, real_image, feat_map = model.encode_input(label)
             inputs = (input_label, inst_map, real_image, feat_map)
-            loss_D_dict, loss_G_dict = train_step(inputs, real_img)
+            loss_D_dict, loss_G_dict, fake_img = train_step(inputs, real_img)
+            if not opt.no_normalize_img:
+                fake_img = fake_img * 0.5 + 0.5
+                fake_img = fake_img * 255
+            fake_img = tf.cast(fake_img, tf.uint8)
 
-            if step % opt.save_epoch_freq == 0:
-                checkpoint.save(checkpoint_prefix)
+            if (step+1) % opt.display_freq == 0:
+                tl.summary(loss_G_dict, step=model.optimizer_G.iterations, name='G_losses')
+                tl.summary(loss_D_dict, step=model.optimizer_G.iterations, name='D_losses')
+                tl.summary({'gen_img': fake_img},
+                           step=model.optimizer_G.iterations,
+                           types=['image'],
+                           name='image_generated')
 
-            tl.summary(loss_G_dict, step=model.optimizer_G.iterations, name='G_losses')
-            tl.summary(loss_D_dict, step=model.optimizer_G.iterations, name='D_losses')
+        if (ep+1) % opt.save_epoch_freq == 0:
+            checkpoint.save(checkpoint_prefix)
