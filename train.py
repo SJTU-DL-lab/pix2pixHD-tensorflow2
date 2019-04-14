@@ -99,7 +99,7 @@ def train_step(inputs, real_img):
         if not opt.no_vgg_loss:
             loss_G_VGG = criterionVGG(fake_img, real_img) * opt.lambda_feat
 
-        loss_D = loss_D_fake + loss_D_real
+        loss_D = (loss_D_fake + loss_D_real) * 0.5
         loss_G = loss_G_GAN + loss_G_GAN_Feat + loss_G_VGG
 
     gen_grads = gen_tape.gradient(loss_G, model.netG.trainable_variables)
