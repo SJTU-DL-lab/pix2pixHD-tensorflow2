@@ -57,4 +57,4 @@ if __name__ == '__main__':
     for i in range(5):
         inp = tf.random.normal((4, 32, 32, 2))
         return_images = img_pool.query(inp)
-        print(return_images.shape)
+        print(return_images)

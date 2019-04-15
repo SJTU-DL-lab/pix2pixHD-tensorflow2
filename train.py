@@ -14,9 +14,16 @@ dataset, len_datset = aligned_dataset(opt)
 
 model = Pix2PixHDModel()
 model.initialize(opt)
+# model.netG.build(input_shape=(1, 128, 128, 4))
 # model.encode_input(label_map)
 fake_pool = ImagePool(opt.pool_size)
 start_epoch, epoch_iter = 1, 0
+
+total_iter = opt.niter + opt.niter_decay
+lr_scheduler_G = tl.LinearDecay(opt.lr, total_iter * len_dataset, opt.niter_decay * len_dataset)
+lr_scheduler_D = tl.LinearDecay(opt.lr, total_iter * len_dataset, opt.niter_decay * len_dataset)
+optimizer_G = K.optimizers.Adam(lr=lr_scheduler_G, beta_1=opt.beta1, beta_2=0.999)
+optimizer_D = K.optimizers.Adam(lr=lr_scheduler_D, beta_1=opt.beta1, beta_2=0.999)
 
 if opt.no_lsgan:
     criterionGAN = K.losses.BinaryCrossentropy()
@@ -29,8 +36,8 @@ criterionVGG = VGGLoss()
 checkpoint_dir = os.path.join(opt.checkpoints_dir,
                               opt.name, 'train_ckpt')
 checkpoint_prefix = os.path.join(checkpoint_dir, "ckpt")
-checkpoint = tf.train.Checkpoint(generator_optimizer=model.optimizer_G,
-                                 discriminator_optimizer=model.optimizer_D,
+checkpoint = tf.train.Checkpoint(# generator_optimizer=optimizer_G,
+                                 # discriminator_optimizer=optimizer_D,
                                  generator=model.netG,
                                  discriminator=model.netD)
 # summary
@@ -64,9 +71,10 @@ def discriminate(input, target_is_real):
             target_tensor = tf.zeros_like(input[-1])
         return criterionGAN(input[-1], target_tensor)
 
-
-def train_step(inputs, real_img):
-    input_label = inputs[0]
+@tf.function(input_signature=[tf.TensorSpec(shape=(None, None, None, opt.label_nc), dtype=tf.float32),
+                              tf.TensorSpec(shape=(None, None, None, opt.input_nc), dtype=tf.float32)])
+def train_step(input_label, real_img):
+    # input_label = inputs[0]
     with tf.GradientTape() as gen_tape, tf.GradientTape() as disc_tape:
         fake_img = model.netG(input_label)
 
@@ -105,10 +113,10 @@ def train_step(inputs, real_img):
     gen_grads = gen_tape.gradient(loss_G, model.netG.trainable_variables)
     disc_grads = disc_tape.gradient(loss_D, model.netD.trainable_variables)
 
-    model.optimizer_G.apply_gradients(zip(gen_grads,
-                                          model.netG.trainable_variables))
-    model.optimizer_D.apply_gradients(zip(disc_grads,
-                                          model.netD.trainable_variables))
+    optimizer_G.apply_gradients(zip(gen_grads,
+                                    model.netG.trainable_variables))
+    optimizer_D.apply_gradients(zip(disc_grads,
+                                    model.netD.trainable_variables))
 
     loss_D_dict = {
         'D_fake': loss_D_fake,
@@ -122,24 +130,28 @@ def train_step(inputs, real_img):
     return loss_D_dict, loss_G_dict, fake_img
 
 
+# graph = train_step.get_concrete_function().graph
+# graph_def = graph.as_graph_def()
+# tf.io.write_graph(graph_def, './', 'graph.pb', False)
+
 # main loop
 with train_summary_writer.as_default():
     for ep in range(start_epoch, opt.niter + opt.niter_decay + 1):
         print('Epoch: ', ep)
         for step, (label, real_img) in enumerate(dataset):
             input_label, inst_map, real_image, feat_map = model.encode_input(label)
-            inputs = (input_label, inst_map, real_image, feat_map)
-            loss_D_dict, loss_G_dict, fake_img = train_step(inputs, real_img)
+            # inputs = (input_label, inst_map, real_image, feat_map)
+            loss_D_dict, loss_G_dict, fake_img = train_step(input_label, real_img)
             if not opt.no_normalize_img:
                 fake_img = fake_img * 0.5 + 0.5
                 fake_img = fake_img * 255
             fake_img = tf.cast(fake_img, tf.uint8)
 
             if (step+1) % opt.display_freq == 0:
-                tl.summary(loss_G_dict, step=model.optimizer_G.iterations, name='G_losses')
-                tl.summary(loss_D_dict, step=model.optimizer_G.iterations, name='D_losses')
+                tl.summary(loss_G_dict, step=optimizer_G.iterations, name='G_losses')
+                tl.summary(loss_D_dict, step=optimizer_G.iterations, name='D_losses')
                 tl.summary({'gen_img': fake_img},
-                           step=model.optimizer_G.iterations,
+                           step=optimizer_G.iterations,
                            types=['image'],
                            name='image_generated')
 

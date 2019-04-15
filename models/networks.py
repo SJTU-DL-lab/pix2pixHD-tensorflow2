@@ -1,5 +1,6 @@
 import tensorflow as tf
 import tensorflow.keras as K
+from tensorflow_addons.layers import InstanceNormalization
 import functools
 from tensorflow.keras import layers
 from tensorflow.keras.applications.vgg19 import VGG19
@@ -10,17 +11,20 @@ weight_init['conv'] = tf.random_normal_initializer(0.0, 0.02)
 weight_init['bn_gamma'] = tf.random_normal_initializer(1.0, 0.02)
 weight_init['bn_beta'] = tf.zeros_initializer()
 
+
 # Functions
 def get_norm_layer(norm_type='instance'):
     if norm_type == 'batch':
+        # BUG HERE
         norm_layer = functools.partial(layers.BatchNormalization,
                                        gamma_initializer=weight_init['bn_gamma'],
                                        beta_initializer=weight_init['bn_beta'])
     elif norm_type == 'instance':
-        norm_layer = InstanceNorm
+        norm_layer = InstanceNormalization
     else:
         raise NotImplementedError('normalization layer [%s] is not found' % norm_type)
     return norm_layer
+
 
 def define_G(input_nc, output_nc, ngf, netG, n_downsample_global=3, n_blocks_global=9, n_local_enhancers=1,
              n_blocks_local=3, norm='instance'):
@@ -36,6 +40,7 @@ def define_G(input_nc, output_nc, ngf, netG, n_downsample_global=3, n_blocks_glo
     else:
         raise('generator not implemented!')
     return netG
+
 
 def define_D(input_nc, ndf, n_layers_D, norm='instance', use_sigmoid=False, num_D=1, getIntermFeat=False):
     norm_layer = get_norm_layer(norm_type=norm)
@@ -136,13 +141,13 @@ class GlobalGenerator(K.Model):
         super(GlobalGenerator, self).__init__()
         self.padding_type = padding_type
         self.output_nc = output_nc
-        paddings = tf.constant([[0, 0], [3, 3], [3, 3], [0, 0]])
+        paddings = (3, 3)
         activation = layers.ReLU()
 
         model = K.Sequential()
-        # model.add(layers.InputLayer([None, None, input_nc]))
+        model.add(layers.InputLayer([None, None, input_nc]))
         model.add(ReflectionPad2d(paddings))
-        model.add(layers.Conv2D(ngf, 7, kernel_initializer=weight_init['conv'], input_shape=(None, None, input_nc)))
+        model.add(layers.Conv2D(ngf, 7, kernel_initializer=weight_init['conv']))
         model.add(norm_layer())
         model.add(activation)
 
@@ -156,7 +161,7 @@ class GlobalGenerator(K.Model):
         # resnet blocks
         mult = 2**n_downsampling
         for i in range(n_blocks):
-            model.add(ResnetBlock(ngf * mult, padding_type=padding_type, activation=activation, norm_layer=norm_layer))
+            model.add(ResnetBlock(dim=ngf * mult, padding_type=padding_type, norm_layer=norm_layer, activation=activation))
 
         # upsample
         for i in range(n_downsampling):
@@ -167,6 +172,11 @@ class GlobalGenerator(K.Model):
         model.add(ReflectionPad2d(paddings))
         model.add(layers.Conv2D(self.output_nc, 7, kernel_initializer=weight_init['conv']))
         model.add(Tanh())
+
+        # inputs = K.Input(shape=(None, None, input_nc), name='GlobalGenerator_input')
+        # outputs = model(inputs)
+        # model = K.Model(inputs, outputs)
+
         self.model = model
 
     def call(self, x):
@@ -182,29 +192,24 @@ class GlobalGenerator(K.Model):
 
 class ResnetBlock(layers.Layer):
     def __init__(self, dim, padding_type, norm_layer,
-                 activation=layers.ReLU(), use_dropout=False, name='ResnetBlock', **kwargs):
-        super(ResnetBlock, self).__init__(name=name, **kwargs)
-        self.use_dropout = use_dropout
-        self.padding_type = padding_type
-        self.dim = dim
-        # self.norm_layer = norm_layer
-        self.activation = activation
+                 activation=layers.ReLU(), use_dropout=False, **kwargs):
+        super(ResnetBlock, self).__init__(**kwargs)
         # CONSTANT REFLECT SYMMETRIC
+        model = K.Sequential((layers.ZeroPadding2D(padding=(1, 1)),
+                              layers.Conv2D(dim, 3, kernel_initializer=weight_init['conv']),
+                              norm_layer(),
+                              activation
+                              ))
+        if use_dropout:
+            model.add(layers.Dropout(0.5))
+        model.add(layers.ZeroPadding2D([1, 1]))
+        model.add(layers.Conv2D(dim, 3, kernel_initializer=weight_init['conv']))
+        model.add(norm_layer())
+        self.model = model
 
     def call(self, x):
         identity = x
-        paddings = tf.constant([[0, 0], [1, 1], [1, 1], [0, 0]])
-
-        x = tf.pad(x, paddings, self.padding_type)
-        x = layers.Conv2D(self.dim, 3, kernel_initializer=weight_init['conv'])(x)
-        x = InstanceNorm()(x)
-        x = self.activation(x)
-        if self.use_dropout:
-            x = layers.Dropout(0.5)(x)
-
-        x = tf.pad(x, paddings, self.padding_type)
-        x = layers.Conv2D(self.dim, 3, kernel_initializer=weight_init['conv'])(x)
-        x = InstanceNorm()(x)
+        x = self.model(x)
         out = x + identity
 
         return out
@@ -261,7 +266,7 @@ class NLayerDiscriminator(K.Model):
 
         kw = 4
         sequence = K.Sequential()
-        # sequence.add(layers.InputLayer([None, None, input_nc]))
+        sequence.add(layers.InputLayer([None, None, input_nc]))
         sequence.add(layers.Conv2D(ndf, kw, strides=2, padding='same', kernel_initializer=weight_init['conv']))
         sequence.add(layers.LeakyReLU(0.2))
 
@@ -337,18 +342,23 @@ class Vgg19(K.Model):
         return out
 
 class ReflectionPad2d(layers.Layer):
-    def __init__(self, paddings):
-        super(ReflectionPad2d, self).__init__(name='ReflectionPad2d')
-        self.paddings = paddings
+    def __init__(self, paddings=(1, 1), **kwargs):
+        self.paddings = tuple(paddings)
+        self.input_spec = [layers.InputSpec(ndim=4)]
+        super(ReflectionPad2d, self).__init__(**kwargs)
+
+    def compute_output_shape(self, s):
+        return (s[0], s[1]+self.paddings[0], s[2]+self.paddings[1], s[3])
 
     def call(self, x):
-        x = tf.pad(x, self.paddings, 'REFLECT')
+        w_pad, h_pad = self.paddings
+        x = tf.pad(x, [[0, 0], [h_pad, h_pad], [w_pad, w_pad], [0, 0]], 'REFLECT')
         return x
 
 
 class Tanh(layers.Layer):
     def __init__(self):
-        super(Tanh, self).__init__(name='Tanh')
+        super(Tanh, self).__init__()
 
     def call(self, x):
         return K.activations.tanh(x)
@@ -356,7 +366,7 @@ class Tanh(layers.Layer):
 
 class Sigmoid(layers.Layer):
     def __init__(self):
-        super(Sigmoid, self).__init__(name='Sigmoid')
+        super(Sigmoid, self).__init__()
 
     def call(self, x):
         return tf.keras.activations.sigmoid(x)
@@ -370,7 +380,7 @@ class InstanceNorm(layers.Layer):
                  beta_initializer=None,
                  epsilon=1e-6,
                  trainable=True):
-        super(InstanceNorm, self).__init__(name='instancenorm')
+        super(InstanceNorm, self).__init__()
         self.scale = scale
         self.center = center
         self.gamma_initializer = gamma_initializer
@@ -427,15 +437,15 @@ class InstanceNorm(layers.Layer):
 
 
 if __name__ == '__main__':
-    test_inp = tf.random.normal((2, 30, 30, 1024))
-    print(test_inp)
+    test_inp = tf.random.normal((128, 128, 3))
     # res_block = ResnetBlock(3, 'CONSTANT', get_norm_layer('batch'))
     # res_out = res_block(test_inp[tf.newaxis, ...])
     # print(res_out.shape)
     #
-    # glob_g = GlobalGenerator(3, norm_layer=layers.BatchNormalization(gamma_initializer=weight_init['bn_gamma'], beta_initializer=weight_init['bn_beta']))
-    # glob_out = glob_g(test_inp[tf.newaxis, ...])
-    # print(glob_out.shape)
+    # print(tf.autograph.to_code(GlobalGenerator(3, 3).call.python_function, experimental_optional_features=None))
+    glob_g = GlobalGenerator(3, 3, norm_layer=InstanceNormalization)
+    glob_out = glob_g(test_inp[tf.newaxis, ...])
+    print(glob_out)
     #
     # local_e = LocalEnhancer(3)
     # local_out = local_e(test_inp[tf.newaxis, ...])
@@ -445,13 +455,13 @@ if __name__ == '__main__':
     # nlayer_disc_out = nlayer_disc(test_inp[tf.newaxis, ...])
     # print(nlayer_disc_out.shape)
     #
-    # multi_disc = MultiscaleDiscriminator()
+    # multi_disc = MultiscaleDiscriminator(3)
     # multi_disc_out = multi_disc(test_inp[tf.newaxis, ...])
-    # print(len(multi_disc_out))
+    # print(multi_disc_out)
 
     # vgg19 = Vgg19()
     # vgg_out = vgg19(test_inp[tf.newaxis, ...])
     # print(len(vgg_out))
-    ins_norm = InstanceNorm()
-    ins_out = ins_norm(test_inp)
-    print(ins_out.shape)
+    # ins_norm = InstanceNorm()
+    # ins_out = ins_norm(test_inp)
+    # print(ins_out.shape)
