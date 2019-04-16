@@ -136,3 +136,4 @@ for step, (label, real_img) in enumerate(dataset):
     print(loss_D_dict)
     tf.saved_model.save(model.netG, os.path.join(opt.checkpoints_dir,
                                                  opt.name, 'net_G_savedModel'))
+    break

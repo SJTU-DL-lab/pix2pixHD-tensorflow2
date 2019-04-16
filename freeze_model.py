@@ -1,10 +1,10 @@
 import tensorflow as tf
 from tensorflow.python.tools import freeze_graph
 
-input_binary=True
-input_graph='/home/yaosy/Diskb/projects/pix2pixHD-tensorflow2/graph.pb'
-input_checkpoint='/home/yaosy/Diskb/projects/pix2pixHD-tensorflow2/checkpoints/debug_train_graph/train_ckpt/ckpt-25'
-output_node_names="discriminator/"
+input_binary=False
+input_graph='./checkpoints/debug_train_graph/net_G_savedModel/saved_model.pb'
+input_checkpoint='checkpoints/debug_train_graph/net_G_savedModel/variables/variables'
+output_node_names="output_1"
 output_graph='/home/yaosy/Diskb/projects/pix2pixHD-tensorflow2/freeze_model.pb'
 
 freeze_graph.freeze_graph(input_graph,
