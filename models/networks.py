@@ -74,7 +74,7 @@ class LocalEnhancer(K.Model):
                  n_local_enhancers=1, n_blocks_local=3, norm_layer=get_norm_layer('batch'), padding_type='REFLECT'):
         super(LocalEnhancer, self).__init__(name='LocalEnhancer')
         self.n_local_enhancers = n_local_enhancers
-        paddings = tf.constant([[0, 0], [3, 3], [3, 3], [0, 0]])
+        paddings = (3, 3)
 
         # global generator
         ngf_global = ngf * (2**n_local_enhancers)
@@ -98,7 +98,7 @@ class LocalEnhancer(K.Model):
             # residual blocks
             model_upsample = K.Sequential()
             for i in range(n_blocks_local):
-                model_upsample.add(ResnetBlock(ngf_global * 2, padding_type=padding_type, norm_layer=norm_layer()))
+                model_upsample.add(ResnetBlock(ngf_global * 2, padding_type=padding_type, norm_layer=norm_layer))
 
             # upsample
             model_upsample.add(layers.Conv2DTranspose(ngf_global, 3, strides=2, padding='same', output_padding=1, kernel_initializer=weight_init['conv']))
