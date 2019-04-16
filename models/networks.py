@@ -1,11 +1,13 @@
 import tensorflow as tf
 import tensorflow.keras as K
 from tensorflow_addons.layers import InstanceNormalization
+from options.train_options import TrainOptions
 import functools
 from tensorflow.keras import layers
 from tensorflow.keras.applications.vgg19 import VGG19
 
 
+opt = TrainOptions().parse()
 weight_init = {}
 weight_init['conv'] = tf.random_normal_initializer(0.0, 0.02)
 weight_init['bn_gamma'] = tf.random_normal_initializer(1.0, 0.02)
@@ -179,6 +181,7 @@ class GlobalGenerator(K.Model):
 
         self.model = model
 
+    @tf.function(input_signature=[tf.TensorSpec(shape=(None, None, None, opt.label_nc), dtype=tf.float32)])
     def call(self, x):
         # x = tf.pad(x, paddings, self.padding_type)
         # x = self.model(x)
