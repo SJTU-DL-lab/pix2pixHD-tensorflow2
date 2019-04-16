@@ -109,7 +109,7 @@ class LocalEnhancer(K.Model):
             if n == n_local_enhancers:
                 model_upsample.add(ReflectionPad2d(paddings))
                 model_upsample.add(layers.Conv2D(output_nc, 7, kernel_initializer=weight_init['conv']))
-                model_upsample.add(Tanh())
+                model_upsample.add(Tanh(name='local_output'))
 
             setattr(self, 'model'+str(n)+'_1', model_downsample)
             setattr(self, 'model'+str(n)+'_2', model_upsample)
@@ -173,7 +173,7 @@ class GlobalGenerator(K.Model):
             model.add(activation)
         model.add(ReflectionPad2d(paddings))
         model.add(layers.Conv2D(self.output_nc, 7, kernel_initializer=weight_init['conv']))
-        model.add(Tanh())
+        model.add(Tanh(name='global_output'))
 
         # inputs = K.Input(shape=(None, None, input_nc), name='GlobalGenerator_input')
         # outputs = model(inputs)
@@ -360,16 +360,16 @@ class ReflectionPad2d(layers.Layer):
 
 
 class Tanh(layers.Layer):
-    def __init__(self):
-        super(Tanh, self).__init__()
+    def __init__(self, **kwargs):
+        super(Tanh, self).__init__(**kwargs)
 
     def call(self, x):
         return K.activations.tanh(x)
 
 
 class Sigmoid(layers.Layer):
-    def __init__(self):
-        super(Sigmoid, self).__init__()
+    def __init__(self, **kwargs):
+        super(Sigmoid, self).__init__(**kwargs)
 
     def call(self, x):
         return tf.keras.activations.sigmoid(x)
