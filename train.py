@@ -152,7 +152,7 @@ def train_step(input_label, real_img):
 
 graph = train_G_D.get_concrete_function().graph
 graph_def = graph.as_graph_def()
-tf.io.write_graph(graph_def, './', 'graph.pb', False)
+tf.io.write_graph(graph_def, './', 'graph.pbtxt', True)
 
 # checkpoint
 checkpoint_dir = os.path.join(opt.checkpoints_dir,

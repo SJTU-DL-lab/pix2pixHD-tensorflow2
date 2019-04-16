@@ -11,7 +11,7 @@ saved_model_dir = './checkpoints/debug_train_graph/net_G_savedModel'
 output_graph_filename = "./output_graph.pb"
 
 input_saved_model_dir = saved_model_dir
-output_node_names = "output_1"
+output_node_names = "global_generator/sequential/tanh/Tanh"
 input_binary = False
 input_saver_def_path = False
 restore_op_name = None
