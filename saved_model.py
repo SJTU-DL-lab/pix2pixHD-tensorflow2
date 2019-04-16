@@ -133,5 +133,6 @@ for step, (label, real_img) in enumerate(dataset):
     input_label, inst_map, real_image, feat_map = model.encode_input(label)
     # inputs = (input_label, inst_map, real_image, feat_map)
     loss_D_dict, loss_G_dict, fake_img = train_step(input_label, real_img)
-    tf.saved_model(model.netG, os.path.join(opt.checkpoints_dir,
-                                            opt.name, 'net_G_savedModel'))
+    print(loss_D_dict)
+    tf.saved_model.save(model.netG, os.path.join(opt.checkpoints_dir,
+                                                 opt.name, 'net_G_savedModel'))
