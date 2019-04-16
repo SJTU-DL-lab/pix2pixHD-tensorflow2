@@ -95,6 +95,7 @@ def discriminate(input, target_is_real):
 def train_step(input_label, real_img):
     # input_label = inputs[0]
     with tf.GradientTape() as gen_tape, tf.GradientTape() as disc_tape:
+
         loss_D_fake, loss_D_real, loss_G_GAN, loss_G_GAN_Feat, loss_G_VGG, fake_img = train_G_D(input_label, real_img)
         loss_D = (loss_D_fake + loss_D_real) * 0.5
         loss_G = loss_G_GAN + loss_G_GAN_Feat + loss_G_VGG
@@ -118,51 +119,27 @@ def train_step(input_label, real_img):
     }
     return loss_D_dict, loss_G_dict, fake_img
 
-
-# graph = train_G_D.get_concrete_function().graph
-# graph_def = graph.as_graph_def()
-# tf.io.write_graph(graph_def, './', 'graph.pbtxt', True)
-
 # checkpoint
 checkpoint_dir = os.path.join(opt.checkpoints_dir,
                               opt.name, 'train_ckpt')
 checkpoint = tl.Checkpoint({'generator': model.netG,
-                            'discriminator': model.netD,
-                            'optimizer_G': optimizer_G,
-                            'optimizer_D': optimizer_D}, checkpoint_dir)
+                            'discriminator': model.netD}, checkpoint_dir)
 try:  # restore checkpoint including the epoch counter
     checkpoint.restore().assert_existing_objects_matched()
-    print('restore')
+    print('restore sucess')
 except Exception as e:
     print(e)
-
 # main loop
-with train_summary_writer.as_default():
-    for ep in range(start_epoch, opt.niter + opt.niter_decay + 1):
-        print('Epoch: ', ep)
-        for step, (label, real_img) in enumerate(dataset):
-            input_label, inst_map, real_image, feat_map = model.encode_input(label)
-            # inputs = (input_label, inst_map, real_image, feat_map)
-            loss_D_dict, loss_G_dict, fake_img = train_step(input_label, real_img)
-            if not opt.no_normalize_img:
-                fake_img = fake_img * 0.5 + 0.5
-                fake_img = fake_img * 255
-            fake_img = tf.cast(fake_img, tf.uint8)
+for step, (label, real_img) in enumerate(dataset):
+    input_label, inst_map, real_image, feat_map = model.encode_input(label)
+    # inputs = (input_label, inst_map, real_image, feat_map)
+    loss_D_dict, loss_G_dict, fake_img = train_step(input_label, real_img)
+    graph = train_G_D.get_concrete_function().graph
+    graph_def = graph.as_graph_def()
+    print([node.name for node in graph_def.node])
+    tf.io.write_graph(graph_def, './', 'graph_out.pbtxt', True)
 
-            if (step+1) % opt.display_freq == 0:
-                tl.summary(loss_G_dict, step=optimizer_G.iterations, name='G_losses')
-                tl.summary(loss_D_dict, step=optimizer_G.iterations, name='D_losses')
-                tl.summary({'learning rate': lr_scheduler_G.current_learning_rate},
-                           step=optimizer_G.iterations,
-                           name='learning rate')
-                tl.summary({'gen_img': fake_img},
-                           step=optimizer_G.iterations,
-                           types=['image'],
-                           name='image_generated')
-
-        if (ep+1) % opt.save_epoch_freq == 0:
-            checkpoint.save()
-
-if opt.savedModel_output:
+    print(loss_D_dict)
     tf.saved_model.save(model.netG, os.path.join(opt.checkpoints_dir,
                                                  opt.name, 'net_G_savedModel'))
+    break
