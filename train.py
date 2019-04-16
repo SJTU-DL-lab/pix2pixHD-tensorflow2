@@ -10,7 +10,7 @@ from util.image_pool import ImagePool
 
 opt = TrainOptions().parse()
 iter_path = os.path.join(opt.checkpoints_dir, opt.name, 'iter.txt')
-dataset, len_datset = aligned_dataset(opt)
+dataset, len_dataset = aligned_dataset(opt)
 
 model = Pix2PixHDModel()
 model.initialize(opt)
@@ -22,8 +22,8 @@ start_epoch, epoch_iter = 1, 0
 total_iter = opt.niter + opt.niter_decay
 lr_scheduler_G = tl.LinearDecay(opt.lr, total_iter * len_dataset, opt.niter_decay * len_dataset)
 lr_scheduler_D = tl.LinearDecay(opt.lr, total_iter * len_dataset, opt.niter_decay * len_dataset)
-optimizer_G = K.optimizers.Adam(lr=lr_scheduler_G, beta_1=opt.beta1, beta_2=0.999)
-optimizer_D = K.optimizers.Adam(lr=lr_scheduler_D, beta_1=opt.beta1, beta_2=0.999)
+optimizer_G = K.optimizers.Adam(learning_rate=lr_scheduler_G, beta_1=opt.beta1, beta_2=0.999)
+optimizer_D = K.optimizers.Adam(learning_rate=lr_scheduler_D, beta_1=opt.beta1, beta_2=0.999)
 
 if opt.no_lsgan:
     criterionGAN = K.losses.BinaryCrossentropy()
@@ -32,25 +32,45 @@ else:
 criterionFeat = K.losses.MeanAbsoluteError()
 criterionVGG = VGGLoss()
 
-# checkpoint
-checkpoint_dir = os.path.join(opt.checkpoints_dir,
-                              opt.name, 'train_ckpt')
-checkpoint_prefix = os.path.join(checkpoint_dir, "ckpt")
-checkpoint = tf.train.Checkpoint(# generator_optimizer=optimizer_G,
-                                 # discriminator_optimizer=optimizer_D,
-                                 generator=model.netG,
-                                 discriminator=model.netD)
 # summary
 train_summary_writer = tf.summary.create_file_writer(os.path.join(opt.checkpoints_dir,
                                                      opt.name, 'summary'))
 
-def train_D(fake_pair, real_pair):
+@tf.function(input_signature=[tf.TensorSpec(shape=(None, None, None, opt.label_nc), dtype=tf.float32),
+                              tf.TensorSpec(shape=(None, None, None, opt.input_nc), dtype=tf.float32)])
+def train_G_D(input_label, real_img):
+    fake_img = model.netG(input_label)
 
-    loss_object(tf.ones_like(real_pair), real_pair)
+    real_pair = tf.concat([input_label, real_img], axis=-1)
+    fake_pair = tf.concat([input_label, fake_img], axis=-1)
+    fake_pair = fake_pool.query(fake_pair)
 
+    # Fake Detection and Loss
+    pred_fake_pool = model.netD(fake_pair)
+    loss_D_fake = discriminate(pred_fake_pool, False)
 
-def train_G(input):
-    pass
+    # Real Detection and Loss
+    pred_real = model.netD(real_pair)
+    loss_D_real = discriminate(pred_real, True)
+
+    # GAN loss (Fake Passability Loss)
+    pred_fake = model.netD(fake_pair)
+    loss_G_GAN = discriminate(pred_fake, True)
+
+    # GAN feature matching loss
+    loss_G_GAN_Feat = 0
+    if not opt.no_ganFeat_loss:
+        feat_weights = 4.0 / (opt.n_layers_D + 1)
+        D_weights = 1.0 / opt.num_D
+        for i in range(opt.num_D):
+            for j in range(len(pred_fake[i])-1):
+                loss_G_GAN_Feat += D_weights * feat_weights * \
+                    criterionFeat(pred_fake[i][j], pred_real[i][j]) * opt.lambda_feat
+
+    if not opt.no_vgg_loss:
+        loss_G_VGG = criterionVGG(fake_img, real_img) * opt.lambda_feat
+
+    return loss_D_fake, loss_D_real, loss_G_GAN, loss_G_GAN_Feat, loss_G_VGG, fake_img
 
 
 def discriminate(input, target_is_real):
@@ -71,42 +91,42 @@ def discriminate(input, target_is_real):
             target_tensor = tf.zeros_like(input[-1])
         return criterionGAN(input[-1], target_tensor)
 
-@tf.function(input_signature=[tf.TensorSpec(shape=(None, None, None, opt.label_nc), dtype=tf.float32),
-                              tf.TensorSpec(shape=(None, None, None, opt.input_nc), dtype=tf.float32)])
+# @tf.function(input_signature=[tf.TensorSpec(shape=(None, None, None, opt.label_nc), dtype=tf.float32),
+#                               tf.TensorSpec(shape=(None, None, None, opt.input_nc), dtype=tf.float32)])
 def train_step(input_label, real_img):
     # input_label = inputs[0]
     with tf.GradientTape() as gen_tape, tf.GradientTape() as disc_tape:
-        fake_img = model.netG(input_label)
-
-        real_pair = tf.concat([input_label, real_img], axis=-1)
-        fake_pair = tf.concat([input_label, fake_img], axis=-1)
-        fake_pair = fake_pool.query(fake_pair)
-
-        # Fake Detection and Loss
-        pred_fake_pool = model.netD(fake_pair)
-        loss_D_fake = discriminate(pred_fake_pool, False)
-
-        # Real Detection and Loss
-        pred_real = model.netD(real_pair)
-        loss_D_real = discriminate(pred_real, True)
-
-        # GAN loss (Fake Passability Loss)
-        pred_fake = model.netD(fake_pair)
-        loss_G_GAN = discriminate(pred_fake, True)
-
-        # GAN feature matching loss
-        loss_G_GAN_Feat = 0
-        if not opt.no_ganFeat_loss:
-            feat_weights = 4.0 / (opt.n_layers_D + 1)
-            D_weights = 1.0 / opt.num_D
-            for i in range(opt.num_D):
-                for j in range(len(pred_fake[i])-1):
-                    loss_G_GAN_Feat += D_weights * feat_weights * \
-                        criterionFeat(pred_fake[i][j], pred_real[i][j]) * opt.lambda_feat
-
-        if not opt.no_vgg_loss:
-            loss_G_VGG = criterionVGG(fake_img, real_img) * opt.lambda_feat
-
+        # fake_img = model.netG(input_label)
+        #
+        # real_pair = tf.concat([input_label, real_img], axis=-1)
+        # fake_pair = tf.concat([input_label, fake_img], axis=-1)
+        # fake_pair = fake_pool.query(fake_pair)
+        #
+        # # Fake Detection and Loss
+        # pred_fake_pool = model.netD(fake_pair)
+        # loss_D_fake = discriminate(pred_fake_pool, False)
+        #
+        # # Real Detection and Loss
+        # pred_real = model.netD(real_pair)
+        # loss_D_real = discriminate(pred_real, True)
+        #
+        # # GAN loss (Fake Passability Loss)
+        # pred_fake = model.netD(fake_pair)
+        # loss_G_GAN = discriminate(pred_fake, True)
+        #
+        # # GAN feature matching loss
+        # loss_G_GAN_Feat = 0
+        # if not opt.no_ganFeat_loss:
+        #     feat_weights = 4.0 / (opt.n_layers_D + 1)
+        #     D_weights = 1.0 / opt.num_D
+        #     for i in range(opt.num_D):
+        #         for j in range(len(pred_fake[i])-1):
+        #             loss_G_GAN_Feat += D_weights * feat_weights * \
+        #                 criterionFeat(pred_fake[i][j], pred_real[i][j]) * opt.lambda_feat
+        #
+        # if not opt.no_vgg_loss:
+        #     loss_G_VGG = criterionVGG(fake_img, real_img) * opt.lambda_feat
+        loss_D_fake, loss_D_real, loss_G_GAN, loss_G_GAN_Feat, loss_G_VGG, fake_img = train_G_D(input_label, real_img)
         loss_D = (loss_D_fake + loss_D_real) * 0.5
         loss_G = loss_G_GAN + loss_G_GAN_Feat + loss_G_VGG
 
@@ -130,10 +150,20 @@ def train_step(input_label, real_img):
     return loss_D_dict, loss_G_dict, fake_img
 
 
-# graph = train_step.get_concrete_function().graph
-# graph_def = graph.as_graph_def()
-# tf.io.write_graph(graph_def, './', 'graph.pb', False)
+graph = train_G_D.get_concrete_function().graph
+graph_def = graph.as_graph_def()
+tf.io.write_graph(graph_def, './', 'graph.pb', False)
 
+# checkpoint
+checkpoint_dir = os.path.join(opt.checkpoints_dir,
+                              opt.name, 'train_ckpt')
+checkpoint = tl.Checkpoint({'generator': model.netG,
+                            'discriminator': model.netD}, checkpoint_dir)
+try:  # restore checkpoint including the epoch counter
+    checkpoint.restore().assert_existing_objects_matched()
+    print('restore')
+except Exception as e:
+    print(e)
 # main loop
 with train_summary_writer.as_default():
     for ep in range(start_epoch, opt.niter + opt.niter_decay + 1):
@@ -156,4 +186,4 @@ with train_summary_writer.as_default():
                            name='image_generated')
 
         if (ep+1) % opt.save_epoch_freq == 0:
-            checkpoint.save(checkpoint_prefix)
+            checkpoint.save()

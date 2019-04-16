@@ -13,8 +13,9 @@ def f(x):
 # a particular input signature:
 graph = f.get_concrete_function().graph
 graph_def = graph.as_graph_def()
-print(graph_def.SerializeToString())
+print([node.name for node in graph_def.node])
+print(graph_def)
 #
-tf.io.write_graph(graph_def, './', 'graph1.pb', False)
+# tf.io.write_graph(graph_def, './', 'graph1.pb', False)
 # with open("./graph.pb", "wb") as f:
 #   f.write(graph_def.SerializeToString())

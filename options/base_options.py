@@ -32,7 +32,6 @@ class BaseOptions():
         self.parser.add_argument('--dataroot', type=str, default='./datasets/cityscapes/')
         self.parser.add_argument('--no_drop_remainder', action='store_true', help='drop the last batch or not')
         self.parser.add_argument('--no_shuffle', action='store_true', help='shuffle the dataset or not')
-        self.parser.add_argument('--repeat_num', type=int, default=None, help='dataloader repeat num')
         self.parser.add_argument('--resize_or_crop', type=str, default='scale_width', help='scaling and cropping of images at load time [resize_and_crop|crop|scale_width|scale_width_and_crop]')
         self.parser.add_argument('--serial_batches', action='store_true', help='if true, takes images in order to make batches, otherwise takes them randomly')
         self.parser.add_argument('--no_flip', action='store_true', help='if specified, do not flip the images for data argumentation')
