@@ -2,8 +2,18 @@
 /datasets/
 /output/
 
+# temp files to be deleted
+/temp
+
+# nohup
+nohup.out
+
 # checkpoints
 /checkpoints
+
+# some sh
+debug_train.sh
+/train_sbash
 
 # pb model file
 *.pb

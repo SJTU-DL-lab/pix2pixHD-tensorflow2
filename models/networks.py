@@ -181,7 +181,6 @@ class GlobalGenerator(K.Model):
 
         self.model = model
 
-    @tf.function(input_signature=[tf.TensorSpec(shape=(None, None, None, opt.label_nc), dtype=tf.float32)])
     def call(self, x):
         # x = tf.pad(x, paddings, self.padding_type)
         # x = self.model(x)
